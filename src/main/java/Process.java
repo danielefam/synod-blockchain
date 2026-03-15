@@ -282,7 +282,7 @@ public class Process extends AbstractActor {
         ballot += n;        // line 5
         resetStates();
         gatherCount = 0;
-        ackCount    = 0;
+        ackCount = 0;
 
         log.info("[P{}] propose  value={}  ballot={}", id, proposal, ballot);
 

@@ -13,85 +13,136 @@ import java.util.concurrent.TimeUnit;
 public class Main {
 
     private static final int  REPETITIONS = 5;
-    private static final long GRACE_MS    = 300;
+    private static final long GRACE_MS = 300;
+    private static final String CSV_RUNS = "results/runs.csv";
+    private static final String CSV_SUMMARY = "results/summary.csv";
 
     public static void main(String[] args) throws InterruptedException {
 
         // int[] sizes = {3, 10, 30, 70, 100};
-        int[] sizes = {100};
+        int[] sizes = {3, 10, 100};
         // double[] alphas = {0.0, 0.1, 1.0};
-        double[] alphas = {0.0};
+        double[] alphas = {0.0, 0.1, 1};
         // long[] tles = {2000, 1000, 200, 100};
-        long[] tles = {0};
+        long[] tles = {100, 20};
 
         // create output dir and write header
-        new java.io.File("results").mkdirs();
-        try (PrintWriter pw = new PrintWriter(new FileWriter("results/benchmark.csv", false))) {
-            pw.println("run_id,repetition,n,f,tle_ms,alpha,decisions," +
-                       "first_latency_ms,avg_latency_ms,decided_value,agreement_ok");
+        try (PrintWriter pw = new PrintWriter(new FileWriter(CSV_RUNS, false))) {
+            pw.println("config_id,repetition,n,f,tle_ms,alpha," +
+                       "decisions,first_latency_ms,avg_latency_ms,decided_value,agreement_ok");
         } catch (IOException e) {
-            System.err.println("Cannot create CSV: " + e.getMessage());
+            System.err.println("Cannot create runs CSV: " + e.getMessage());
             return;
         }
-
-        int runId = 0;
+        try (PrintWriter pw = new PrintWriter(new FileWriter(CSV_SUMMARY, false))) {
+            pw.println("config_id,n,f,tle_ms,alpha," +
+                       "avg_first_latency_ms,avg_decisions,agreement_ok");
+        } catch (IOException e) {
+            System.err.println("Cannot create summary CSV: " + e.getMessage());
+            return;
+        }
+ 
+        int configId = 0;
 
         for (int n : sizes) {
             int f = (n - 1) / 2;
             for (double alpha : alphas) {
                 for (long tle : tles) {
+                    configId++;
                     ExperimentConfig cfg = new ExperimentConfig(n, f, tle, alpha);
+ 
+                    // collect firstLatency from each of the 5 repetitions
+                    List<Long> firstLatencies = new ArrayList<>();
+                    List<Integer> decisionCounts = new ArrayList<>();
+                    boolean allAgreed = true;
+ 
                     for (int rep = 1; rep <= REPETITIONS; rep++) {
-                        runId++;
-                        runExperiment(runId, rep, cfg);
+                        RunResult result = runExperiment(cfg);
+ 
+                        // print and save individual run
+                        System.out.printf(
+                            "[cfg %3d | rep %d] N=%3d f=%2d tle=%4dms alpha=%.1f" +
+                            " decisions=%3d firstLatency=%4dms avgLatency=%4dms agreement=%s%n",
+                            configId, rep, cfg.n, cfg.f, cfg.tleMs, cfg.alpha,
+                            result.decisions, result.firstLatency, result.avgLatency,
+                            result.agreement ? "OK" : "VIOLATED!");
+ 
+                        writeRunRow(configId, rep, cfg, result);
+ 
+                        // accumulate for summary (only count runs where a decision was made)
+                        if (result.firstLatency >= 0) {
+                            firstLatencies.add(result.firstLatency);
+                        }
+                        decisionCounts.add(result.decisions);
+                        if (!result.agreement) allAgreed = false;
                     }
+ 
+                    // compute averages over the 5 repetitions
+                    long avgConsensusLatency = firstLatencies.isEmpty() ? -1
+                            : (long) firstLatencies.stream()
+                                .mapToLong(Long::longValue).average().orElse(-1);
+ 
+                    double avgDecisions = decisionCounts.stream()
+                            .mapToInt(Integer::intValue).average().orElse(0);
+ 
+                    // print and save summary row
+                    System.out.printf(
+                        "[cfg %3d SUMMARY  ] N=%3d f=%2d tle=%4dms alpha=%.1f" +
+                        " avgConsensusLatency=%4dms avgDecisions=%.1f agreement=%s%n%n",
+                        configId, cfg.n, cfg.f, cfg.tleMs, cfg.alpha,
+                        avgConsensusLatency, avgDecisions, allAgreed ? "OK" : "VIOLATED!");
+ 
+                    writeSummaryRow(configId, cfg, avgConsensusLatency, avgDecisions, allAgreed);
                 }
             }
         }
-
-        System.out.println("results saved to results/benchmark.csv");
+ 
+        System.out.println("---------DONE--------");
+        System.out.println("Per-run results: " + CSV_RUNS);
+        System.out.println("Summary results: " + CSV_SUMMARY);
+        System.out.println("---------FINISH SUMMARY--------");
     }
 
-    private static void runExperiment(int runId, int repetition, ExperimentConfig cfg)
+    private static RunResult runExperiment(ExperimentConfig cfg)
             throws InterruptedException {
-
-        ActorSystem system = ActorSystem.create("synod-run-" + runId);
-
+ 
+        RunResult result = new RunResult();
+        ActorSystem system = ActorSystem.create("synod");
+ 
         try {
             int n = cfg.n;
             int f = cfg.f;
             long tleMs = cfg.tleMs;
             double alpha = cfg.alpha;
-
+ 
             ActorRef collector = system.actorOf(
-                    ResultCollector.props(n, runId, repetition, cfg), "collector");
-
+                    ResultCollector.props(n, result), "collector");
+ 
             List<ActorRef> processes = new ArrayList<>(n);
             for (int i = 1; i <= n; i++) {
                 ActorRef p = system.actorOf(
                         Process.props(i, n, collector, alpha), "process-" + i);
                 processes.add(p);
             }
-
+ 
             SetPeersMessage setPeers = new SetPeersMessage(processes);
             for (ActorRef p : processes) {
                 p.tell(setPeers, ActorRef.noSender());
             }
-
+ 
             List<ActorRef> shuffled   = new ArrayList<>(processes);
             Collections.shuffle(shuffled);
             List<ActorRef> faultProne = new ArrayList<>(shuffled.subList(0, f));
             for (ActorRef p : faultProne) {
                 p.tell(new CrashMessage(), ActorRef.noSender());
             }
-
+ 
             for (ActorRef p : processes) {
                 p.tell(new LaunchMessage(), ActorRef.noSender());
             }
-
-            // leader election after tle ms
+ 
             Thread.sleep(tleMs);
-
+ 
             ActorRef leader = null;
             for (ActorRef p : processes) {
                 if (!faultProne.contains(p)) {
@@ -104,11 +155,11 @@ public class Main {
                     p.tell(new HoldMessage(), ActorRef.noSender());
                 }
             }
-
+ 
             Thread.sleep(GRACE_MS);
             collector.tell(new ResultCollector.FlushMessage(), ActorRef.noSender());
             Thread.sleep(100);
-
+ 
         } finally {
             system.terminate();
             try {
@@ -116,10 +167,38 @@ public class Main {
                         system.whenTerminated(),
                         scala.concurrent.duration.Duration.apply(10, TimeUnit.SECONDS));
             } catch (TimeoutException e) {
-                System.err.println("[Run " + runId + "] termination timed out.");
+                System.err.println("ActorSystem termination timed out.");
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
+        }
+ 
+        return result;
+    }
+ 
+    // --------------- CSV helpers ------------------
+ 
+    private static void writeRunRow(int configId, int rep,
+                                    ExperimentConfig cfg, RunResult r) {
+        try (PrintWriter pw = new PrintWriter(new FileWriter(CSV_RUNS, true))) {
+            pw.printf("%d,%d,%d,%d,%d,%.1f,%d,%d,%d,%d,%b%n",
+                    configId, rep, cfg.n, cfg.f, cfg.tleMs, cfg.alpha,
+                    r.decisions, r.firstLatency, r.avgLatency,
+                    r.decidedValue, r.agreement);
+        } catch (IOException e) {
+            System.err.println("Could not write run row: " + e.getMessage());
+        }
+    }
+ 
+    private static void writeSummaryRow(int configId, ExperimentConfig cfg,
+                                        long avgConsensusLatency, double avgDecisions,
+                                        boolean allAgreed) {
+        try (PrintWriter pw = new PrintWriter(new FileWriter(CSV_SUMMARY, true))) {
+            pw.printf("%d,%d,%d,%d,%.1f,%d,%.1f,%b%n",
+                    configId, cfg.n, cfg.f, cfg.tleMs, cfg.alpha,
+                    avgConsensusLatency, avgDecisions, allAgreed);
+        } catch (IOException e) {
+            System.err.println("Could not write summary row: " + e.getMessage());
         }
     }
 }
