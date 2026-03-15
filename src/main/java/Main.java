@@ -1,5 +1,6 @@
 import akka.actor.ActorRef;
 import akka.actor.ActorSystem;
+import java.time.Duration;
 
 import java.io.FileWriter;
 import java.io.IOException;
@@ -140,21 +141,25 @@ public class Main {
             for (ActorRef p : processes) {
                 p.tell(new LaunchMessage(), ActorRef.noSender());
             }
- 
-            Thread.sleep(tleMs);
- 
-            ActorRef leader = null;
-            for (ActorRef p : processes) {
-                if (!faultProne.contains(p)) {
-                    leader = p;
-                    break;
-                }
-            }
-            for (ActorRef p : processes) {
-                if (!p.equals(leader)) {
-                    p.tell(new HoldMessage(), ActorRef.noSender());
-                }
-            }
+
+            system.scheduler().scheduleOnce(
+                scala.concurrent.duration.Duration.create(tleMs, TimeUnit.MILLISECONDS),
+                () -> {
+                    ActorRef leader = null;
+                    for (ActorRef p : processes) {
+                        if (!faultProne.contains(p)) {
+                            leader = p;
+                            break;
+                        }
+                    }
+                    for (ActorRef p : processes) {
+                        if (!p.equals(leader)) {
+                            p.tell(new HoldMessage(), ActorRef.noSender());
+                        }
+                    }
+                },
+                system.dispatcher()
+            );
  
             Thread.sleep(GRACE_MS);
             collector.tell(new ResultCollector.FlushMessage(), ActorRef.noSender());

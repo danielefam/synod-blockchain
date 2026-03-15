@@ -147,6 +147,7 @@ public class Process extends AbstractActor {
     // lines 15-22
     private void onGather(GatherMessage msg) {
         if (crashed) return;
+        if (held) return;
         if (maybeCrash()) return;
         if (msg.ballot != ballot) return; 
 
@@ -208,6 +209,7 @@ public class Process extends AbstractActor {
     // lines 29-30
     private void onAck(AckMessage msg) {
         if (crashed) return;
+        if (held) return;
         if (maybeCrash()) return;
         if (msg.ballot != ballot) return;
 
