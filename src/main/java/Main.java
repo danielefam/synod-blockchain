@@ -1,6 +1,5 @@
 import akka.actor.ActorRef;
 import akka.actor.ActorSystem;
-import java.time.Duration;
 
 import java.io.FileWriter;
 import java.io.IOException;
@@ -14,18 +13,18 @@ import java.util.concurrent.TimeUnit;
 public class Main {
 
     private static final int  REPETITIONS = 5;
-    private static final long GRACE_MS = 300;
+    private static final long GRACE_MS = 400;
     private static final String CSV_RUNS = "results/runs.csv";
     private static final String CSV_SUMMARY = "results/summary.csv";
 
     public static void main(String[] args) throws InterruptedException {
 
-        // int[] sizes = {3, 10, 30, 70, 100};
-        int[] sizes = {3, 10, 100};
-        // double[] alphas = {0.0, 0.1, 1.0};
-        double[] alphas = {0.0, 0.1, 1};
-        // long[] tles = {2000, 1000, 200, 100};
-        long[] tles = {100, 20};
+        int[] sizes = {3, 10, 30, 70, 100};
+        // int[] sizes = {3, 10, 100};
+        double[] alphas = {0.0, 0.1, 1.0};
+        // double[] alphas = {0.0, 0.1, 1};
+        long[] tles = {1000, 200, 100, 10, 1};
+        // long[] tles = {100, 20};
 
         // create output dir and write header
         try (PrintWriter pw = new PrintWriter(new FileWriter(CSV_RUNS, false))) {
@@ -37,7 +36,7 @@ public class Main {
         }
         try (PrintWriter pw = new PrintWriter(new FileWriter(CSV_SUMMARY, false))) {
             pw.println("config_id,n,f,tle_ms,alpha," +
-                       "avg_first_latency_ms,avg_decisions,agreement_ok");
+                       "avg_first_latency_us,avg_decisions,agreement_ok");
         } catch (IOException e) {
             System.err.println("Cannot create summary CSV: " + e.getMessage());
             return;
