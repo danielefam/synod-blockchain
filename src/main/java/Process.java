@@ -93,7 +93,7 @@ public class Process extends AbstractActor {
      * Pick a random proposal in {0,1} and begin the first propose round.
      */
     private void onLaunch(LaunchMessage msg) {
-        if (maybeCrash()) return;
+        if (attemptCrash()) return;
 
         launchTimeMs = System.currentTimeMillis();
         proposal = (int) (Math.random() * 2);
@@ -112,19 +112,39 @@ public class Process extends AbstractActor {
      * The process continues to respond to READ/IMPOSE from the elected leader.
      */
     private void onHold(HoldMessage msg) {
-        if (maybeCrash()) return;
+        if (attemptCrash()) return;
         held = true;
         log.info("[P{}] HOLD received - no more propose rounds", id);
+    }
+
+    // I put it at the start according to pseudocode
+    // lines 4-6
+    private void invokeProposeRound() {
+        if (decided || crashed || held) return;
+
+        ballot += n;        // line 5
+        resetStates();
+        gatherCount = 0;
+        ackCount = 0;
+
+        log.info("[P{}] propose  value={}  ballot={}", id, proposal, ballot);
+
+        ReadMessage read = new ReadMessage(ballot);
+        for (ActorRef p : peers) {
+            p.tell(read, getSelf());    // line 6
+        }
     }
 
     //lines 7-12
     private void onRead(ReadMessage msg) {
         if (crashed) return;
-        if (maybeCrash()) return;
+        if (attemptCrash()) return;
 
         int b = msg.ballot;
-        if (readballot > b || imposeballot > b) // line 9: reject, we have seen a higher ballot
+        // line 9: reject if we have seen a higher ballot
+        if (readballot > b || imposeballot > b) {
             getSender().tell(new AbortMessage(b), getSelf());
+        }
         else {
             // line 11-12: accept, adopt ballot and reply with our estimate
             readballot = b;
@@ -135,8 +155,8 @@ public class Process extends AbstractActor {
     // lines 13-14
     private void onAbort(AbortMessage msg) {
         if (crashed) return;
-        if (maybeCrash()) return;
-        if (msg.ballot != ballot) return; 
+        if (attemptCrash()) return;
+        if (msg.ballot != ballot) return;
 
         log.info("[P{}] ABORT  ballot={}", id, msg.ballot);
         if (!decided && !held) {
@@ -148,7 +168,7 @@ public class Process extends AbstractActor {
     private void onGather(GatherMessage msg) {
         if (crashed) return;
         if (held) return;
-        if (maybeCrash()) return;
+        if (attemptCrash()) return;
         if (msg.ballot != ballot) return; 
 
         int pj = indexOf(getSender());
@@ -158,9 +178,11 @@ public class Process extends AbstractActor {
         statesEstBallot[pj] = msg.imposeballot;
         statesEst[pj] = msg.estimate;
         gatherCount++;
+        // what if same process sends to gathers, is it possible? Same with on Ack
 
         //line 17 upon received a majority of responses
         if (gatherCount > n / 2) {
+            // maybe change to flags e.g. private boolean imposeBroadcasted?
             gatherCount = Integer.MIN_VALUE; // prevent re-trigger of the if
 
             // lines 18-20: adopt the value with the highest impose ballot, if any
@@ -191,7 +213,7 @@ public class Process extends AbstractActor {
     // lines 23-28
     private void onImpose(ImposeMessage msg) {
         if (crashed) return;
-        if (maybeCrash()) return;
+        if (attemptCrash()) return;
 
         int b = msg.ballot;
         int v = msg.value;
@@ -210,9 +232,10 @@ public class Process extends AbstractActor {
     private void onAck(AckMessage msg) {
         if (crashed) return;
         if (held) return;
-        if (maybeCrash()) return;
+        if (attemptCrash()) return;
         if (msg.ballot != ballot) return;
 
+        // what if same process sends to gathers, is it possible?
         ackCount++;
         if (ackCount > n / 2) {
             ackCount = Integer.MIN_VALUE;
@@ -228,7 +251,7 @@ public class Process extends AbstractActor {
     //lines 31-33
     private void onDecide(DecideMessage msg) {
         if (crashed) return;
-        if (maybeCrash()) return;
+        if (attemptCrash()) return;
 
         if (!decided) {
             decided = true;
@@ -239,6 +262,7 @@ public class Process extends AbstractActor {
                 p.tell(fwd, getSelf());
             }
 
+            // first decision latency?? shouldn't be in onAck?
             long latency = System.currentTimeMillis() - launchTimeMs;
             log.info("[P{}] DECIDED  value={}  latency={}ms", id, msg.value, latency);
 
@@ -266,8 +290,9 @@ public class Process extends AbstractActor {
         return -1;
     }
 
+    // the name is a little confusing - maybe tryCrash or attemptCrash?
     //possibly crash if in fault-prone mode with prob alpha
-    private boolean maybeCrash() {
+    private boolean attemptCrash() {
         if (faultProne && !crashed && Math.random() < alpha) {
             // Math.random() < alpha to simulate the bernoulli
             crashed = true;
@@ -277,20 +302,4 @@ public class Process extends AbstractActor {
         return false;
     }
 
-    // lines 5-6
-    private void invokeProposeRound() {
-        if (decided || crashed || held) return;
-
-        ballot += n;        // line 5
-        resetStates();
-        gatherCount = 0;
-        ackCount = 0;
-
-        log.info("[P{}] propose  value={}  ballot={}", id, proposal, ballot);
-
-        ReadMessage read = new ReadMessage(ballot);
-        for (ActorRef p : peers) {
-            p.tell(read, getSelf());    // line 6
-        }
-    }
 }
