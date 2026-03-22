@@ -90,7 +90,10 @@ public class Main {
                         }
                         decisionCounts.add(result.decisions);
                     }
- 
+
+                    // if some runs don't reach agreement they don't count right?
+                    // So the average is from 3 or 4 instead of 5
+
                     // compute averages over the 5 repetitions
                     long avgConsensusLatency = firstLatencies.isEmpty() ? -1
                             : (long) firstLatencies.stream()
@@ -196,6 +199,7 @@ public class Main {
     }
  
     // --------------- CSV helpers ------------------
+    // maybe put it as another class??
  
     private static void writeRunRow(int configId, int rep,
                                     ExperimentConfig cfg, RunResult r) {
