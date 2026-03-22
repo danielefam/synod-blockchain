@@ -240,7 +240,7 @@ public class Process extends AbstractActor {
             }
 
             long latencyUs = (System.nanoTime() - launchTimeNs)/1000;
-            log.info("[P{}] DECIDED  value={}  latencyUs={}ms", id, msg.value, latencyUs);
+            log.info("[P{}] DECIDED  value={}  latencyUs={}us", id, msg.value, latencyUs);
 
             // report to the result collector
             collector.tell(new DecisionEvent(id, msg.value, latencyUs), getSelf());

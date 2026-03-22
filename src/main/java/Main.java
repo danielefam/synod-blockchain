@@ -75,7 +75,7 @@ public class Main {
                         // print and save individual run
                         System.out.printf(
                             "[cfg %3d | rep %d] N=%3d f=%2d tle=%4dms alpha=%.1f" +
-                            " decisions=%3d firstLatency=%4dms avgLatency=%4dms %s%n",
+                            " decisions=%3d firstLatency=%4dus avgLatency=%4dus %s%n",
                             configId, rep, cfg.n, cfg.f, cfg.tleMs, cfg.alpha,
                             result.decisions, result.firstLatency, result.avgLatency, status);
  
