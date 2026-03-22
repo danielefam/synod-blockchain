@@ -53,7 +53,7 @@ public class ResultCollector extends AbstractActor {
             result.agreement = events.stream().allMatch(e -> e.value == result.decidedValue);
 
             LongSummaryStatistics stats =
-                    events.stream().mapToLong(e -> e.latencyMs).summaryStatistics();
+                    events.stream().mapToLong(e -> e.latencyUs).summaryStatistics();
 
             result.firstLatency = stats.getMin();
             result.avgLatency = (long) stats.getAverage();

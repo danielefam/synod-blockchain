@@ -1,6 +1,5 @@
 import akka.actor.ActorRef;
 import akka.actor.ActorSystem;
-import java.time.Duration;
 
 import java.io.FileWriter;
 import java.io.IOException;
@@ -13,31 +12,34 @@ import java.util.concurrent.TimeUnit;
 
 public class Main {
 
+    private static long graceMs(int n) {
+        return 200 + 5L * n;
+    }
+
     private static final int  REPETITIONS = 5;
-    private static final long GRACE_MS = 300;
     private static final String CSV_RUNS = "results/runs.csv";
     private static final String CSV_SUMMARY = "results/summary.csv";
 
     public static void main(String[] args) throws InterruptedException {
 
-        // int[] sizes = {3, 10, 30, 70, 100};
-        int[] sizes = {3, 10, 100};
-        // double[] alphas = {0.0, 0.1, 1.0};
-        double[] alphas = {0.0, 0.1, 1};
-        // long[] tles = {2000, 1000, 200, 100};
-        long[] tles = {100, 20};
+        int[] sizes = {3, 10, 30, 70, 100};
+        // int[] sizes = {3, 10, 100};
+        double[] alphas = {0.0, 0.1, 1.0};
+        // double[] alphas = {0.0, 0.1, 1};
+        long[] tles = {1000, 200, 100, 10, 1};
+        // long[] tles = {100, 20};
 
         // create output dir and write header
         try (PrintWriter pw = new PrintWriter(new FileWriter(CSV_RUNS, false))) {
             pw.println("config_id,repetition,n,f,tle_ms,alpha," +
-                       "decisions,first_latency_ms,avg_latency_ms,decided_value,agreement_ok");
+                       "decisions,first_latency_us,avg_latency_us,decided_value,agreement_ok");
         } catch (IOException e) {
             System.err.println("Cannot create runs CSV: " + e.getMessage());
             return;
         }
         try (PrintWriter pw = new PrintWriter(new FileWriter(CSV_SUMMARY, false))) {
             pw.println("config_id,n,f,tle_ms,alpha," +
-                       "avg_first_latency_ms,avg_decisions,agreement_ok");
+                       "avg_first_latency_us,avg_decisions,no_decision_reps,agreement_violated");
         } catch (IOException e) {
             System.err.println("Cannot create summary CSV: " + e.getMessage());
             return;
@@ -55,27 +57,38 @@ public class Main {
                     // collect firstLatency from each of the 5 repetitions
                     List<Long> firstLatencies = new ArrayList<>();
                     List<Integer> decisionCounts = new ArrayList<>();
-                    boolean allAgreed = true;
+                    int noDecisionReps  = 0;    // reps where decisions == 0
+                    boolean agreementViolated = false; // true only on real disagreement (shouldn't happens)
  
                     for (int rep = 1; rep <= REPETITIONS; rep++) {
                         RunResult result = runExperiment(cfg);
+
+                        String status;
+                        if (result.decisions == 0) {
+                            status = "NO_DECISION";
+                        } else if (!result.agreement) {
+                            status = "VIOLATED!";
+                        } else {
+                            status = "OK";
+                        }
  
                         // print and save individual run
                         System.out.printf(
                             "[cfg %3d | rep %d] N=%3d f=%2d tle=%4dms alpha=%.1f" +
-                            " decisions=%3d firstLatency=%4dms avgLatency=%4dms agreement=%s%n",
+                            " decisions=%3d firstLatency=%4dus avgLatency=%4dus %s%n",
                             configId, rep, cfg.n, cfg.f, cfg.tleMs, cfg.alpha,
-                            result.decisions, result.firstLatency, result.avgLatency,
-                            result.agreement ? "OK" : "VIOLATED!");
+                            result.decisions, result.firstLatency, result.avgLatency, status);
  
                         writeRunRow(configId, rep, cfg, result);
  
                         // accumulate for summary (only count runs where a decision was made)
-                        if (result.firstLatency >= 0) {
+                        if (result.decisions == 0) {
+                            noDecisionReps++;
+                        } else {
                             firstLatencies.add(result.firstLatency);
+                            if (!result.agreement) agreementViolated = true;
                         }
                         decisionCounts.add(result.decisions);
-                        if (!result.agreement) allAgreed = false;
                     }
  
                     // compute averages over the 5 repetitions
@@ -89,11 +102,12 @@ public class Main {
                     // print and save summary row
                     System.out.printf(
                         "[cfg %3d SUMMARY  ] N=%3d f=%2d tle=%4dms alpha=%.1f" +
-                        " avgConsensusLatency=%4dms avgDecisions=%.1f agreement=%s%n%n",
+                        " avgLatency=%6dus avgDecisions=%.1f noDecisionReps=%d agreementViolated=%b%n%n",
                         configId, cfg.n, cfg.f, cfg.tleMs, cfg.alpha,
-                        avgConsensusLatency, avgDecisions, allAgreed ? "OK" : "VIOLATED!");
+                        avgConsensusLatency, avgDecisions, noDecisionReps, agreementViolated);
  
-                    writeSummaryRow(configId, cfg, avgConsensusLatency, avgDecisions, allAgreed);
+                    writeSummaryRow(configId, cfg, avgConsensusLatency,
+                                    avgDecisions, noDecisionReps, agreementViolated);
                 }
             }
         }
@@ -161,7 +175,7 @@ public class Main {
                 system.dispatcher()
             );
  
-            Thread.sleep(GRACE_MS);
+            Thread.sleep(graceMs(n));
             collector.tell(new ResultCollector.FlushMessage(), ActorRef.noSender());
             Thread.sleep(100);
  
@@ -197,11 +211,11 @@ public class Main {
  
     private static void writeSummaryRow(int configId, ExperimentConfig cfg,
                                         long avgConsensusLatency, double avgDecisions,
-                                        boolean allAgreed) {
+                                        int noDecisionReps, boolean agreementViolated) {
         try (PrintWriter pw = new PrintWriter(new FileWriter(CSV_SUMMARY, true))) {
-            pw.printf("%d,%d,%d,%d,%.1f,%d,%.1f,%b%n",
+            pw.printf("%d,%d,%d,%d,%.1f,%d,%.1f,%d,%b%n",
                     configId, cfg.n, cfg.f, cfg.tleMs, cfg.alpha,
-                    avgConsensusLatency, avgDecisions, allAgreed);
+                    avgConsensusLatency, avgDecisions, noDecisionReps, agreementViolated);
         } catch (IOException e) {
             System.err.println("Could not write summary row: " + e.getMessage());
         }

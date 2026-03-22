@@ -38,7 +38,7 @@ public class Process extends AbstractActor {
     private boolean faultProne;
     private boolean held;
 
-    private long launchTimeMs;
+    private long launchTimeNs;
 
     private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
 
@@ -95,7 +95,7 @@ public class Process extends AbstractActor {
     private void onLaunch(LaunchMessage msg) {
         if (maybeCrash()) return;
 
-        launchTimeMs = System.currentTimeMillis();
+        launchTimeNs = System.nanoTime();
         proposal = (int) (Math.random() * 2);
         log.info("[P{}] LAUNCH  proposal={}", id, proposal);
         invokeProposeRound();
@@ -239,11 +239,11 @@ public class Process extends AbstractActor {
                 p.tell(fwd, getSelf());
             }
 
-            long latency = System.currentTimeMillis() - launchTimeMs;
-            log.info("[P{}] DECIDED  value={}  latency={}ms", id, msg.value, latency);
+            long latencyUs = (System.nanoTime() - launchTimeNs)/1000;
+            log.info("[P{}] DECIDED  value={}  latencyUs={}us", id, msg.value, latencyUs);
 
             // report to the result collector
-            collector.tell(new DecisionEvent(id, msg.value, latency), getSelf());
+            collector.tell(new DecisionEvent(id, msg.value, latencyUs), getSelf());
         }
     }
 
