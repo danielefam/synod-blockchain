@@ -66,10 +66,10 @@ class DecideMessage {
 class DecisionEvent {
     public final int  processId;
     public final int  value;
-    public final long latencyMs;   // time from LaunchMessage to this decision
-    public DecisionEvent(int processId, int value, long latencyMs) {
+    public final long latencyUs;   // time from LaunchMessage to this decision
+    public DecisionEvent(int processId, int value, long latencyUs) {
         this.processId = processId;
         this.value     = value;
-        this.latencyMs = latencyMs;
+        this.latencyUs = latencyUs;
     }
 }
