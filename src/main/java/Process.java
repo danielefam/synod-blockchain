@@ -32,6 +32,10 @@ public class Process extends AbstractActor {
     private int   gatherCount;
     private int   ackCount;
 
+    // arrays to make sure there is no double counting in onGather and onAck
+    private boolean[] gatherSeen;
+    private boolean[] ackSeen;
+
     // flags
     private boolean decided;
     private boolean crashed;
@@ -57,6 +61,8 @@ public class Process extends AbstractActor {
 
         statesEstBallot = new int[n + 1];   // 1-indexed
         statesEst = new int[n + 1];
+        gatherSeen = new boolean[n + 1];
+        ackSeen = new boolean[n + 1];
         resetStates();
 
         gatherCount = 0;
@@ -173,15 +179,18 @@ public class Process extends AbstractActor {
         int pj = indexOf(getSender());
         if (pj == -1) return;
 
+        // we make sure we count each process only once
+        if (!gatherSeen[pj]) {
+            gatherSeen[pj] = true;
+            gatherCount++;
+        }
+
         // line 16: record sender's estimate info
         statesEstBallot[pj] = msg.imposeballot;
         statesEst[pj] = msg.estimate;
-        gatherCount++;
-        // what if same process sends to gathers, is it possible? Same with on Ack
 
         //line 17 upon received a majority of responses
         if (gatherCount > n / 2) {
-            // maybe change to flags e.g. private boolean imposeBroadcasted?
             gatherCount = Integer.MIN_VALUE; // prevent re-trigger of the if
 
             // lines 18-20: adopt the value with the highest impose ballot, if any
@@ -234,8 +243,15 @@ public class Process extends AbstractActor {
         if (attemptCrash()) return;
         if (msg.ballot != ballot) return;
 
-        // what if same process sends to gathers, is it possible?
-        ackCount++;
+        int pj = indexOf(getSender());
+        if (pj == -1) return;
+
+        // we make sure we count each process only once
+        if (!ackSeen[pj]) {
+            ackSeen[pj] = true;
+            ackCount++;
+        }
+
         if (ackCount > n / 2) {
             ackCount = Integer.MIN_VALUE;
 
@@ -275,7 +291,9 @@ public class Process extends AbstractActor {
     private void resetStates() {
         for (int k = 1; k <= n; k++) {
             statesEstBallot[k] = 0;
-            statesEst[k]       = NIL;
+            statesEst[k] = NIL;
+            gatherSeen[k] = false;
+            ackSeen[k] = false;
         }
     }
 
